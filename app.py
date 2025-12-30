@@ -45,7 +45,7 @@ with st.sidebar:
     st.divider()
     st.info("ℹ️ **Research Note:** Standard models require months of data. This framework adapts in just 48 hours.")
     st.markdown("---")
-    st.caption("v1.1.0 | Research Grade Build")
+    st.caption("v1.1.2 | Research Grade Build")
 
 # --- 3. DATA LOADING & FUNCTIONS ---
 @st.cache_data
@@ -154,19 +154,20 @@ with tab1:
                 else:
                     st.error("Not enough data generated for this split. Try reducing training hours.")
 
-    # --- RESULTS DISPLAY (DEPENDS ON SESSION STATE) ---
+    # --- RESULTS DISPLAY (SAFEGUARDED) ---
     with c2:
-        if st.session_state.get('training_done'):
-            # Retrieve data from session state
-            fsl_pred = st.session_state['fsl_pred']
-            y_test = st.session_state['y_test']
-            baseline_mse = st.session_state['baseline_mse']
-            fsl_mse = st.session_state['fsl_mse']
+        # Check if training is done AND if y_test is valid
+        if st.session_state.get('training_done') and st.session_state.get('y_test') is not None:
+            # Retrieve data safely
+            fsl_pred = st.session_state.get('fsl_pred')
+            y_test = st.session_state.get('y_test')
+            baseline_mse = st.session_state.get('baseline_mse', 0)
+            fsl_mse = st.session_state.get('fsl_mse', 0)
             
             st.success(f"Model successfully adapted! MSE dropped from {baseline_mse:.0f} to {fsl_mse:.0f}")
             
-            # Interactive Result Chart
-            # Safe Slicing to prevent IndexError
+            # SAFE PLOTTING LOGIC
+            # Use 'min' to avoid index errors if arrays are different sizes
             plot_len = min(100, len(y_test))
             
             df_res = pd.DataFrame({
@@ -181,7 +182,7 @@ with tab1:
             fig_res.update_layout(title="Prediction Accuracy (First 100 Hours)", template="plotly_white", height=350)
             st.plotly_chart(fig_res, use_container_width=True)
             
-            # Metrics (Now persistent)
+            # Metrics
             with c1:
                 st.divider()
                 m1, m2 = st.columns(2)
@@ -189,8 +190,8 @@ with tab1:
                 m2.metric("💾 Model Size", "5.46 KB", "90% Smaller")
                 st.metric("⚡ Energy Efficiency", "2.5 mJ / Inference", "60x vs Cloud")
         else:
+            # Default State (Before Button Click)
             st.info("👈 Click the button to run the live simulation.")
-            # Use GitHub image as placeholder
             st.image("https://github.com/mahbubchula/TinyML-Traffic-Prediction/blob/main/paper/Fig3_Results_Comparison.png?raw=true", caption="Expected Result (Preview)")
 
 
