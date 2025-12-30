@@ -29,8 +29,10 @@ st.markdown("""
 
 # --- 2. SIDEBAR CONTROLS ---
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/000000/traffic-light.png", width=80)
     st.title("🔬 Experiment Settings")
+    st.markdown(" Configure the **Few-Shot Learning** parameters to simulate edge adaptation.")
+    
+    st.divider()
     
     st.markdown("### 1. Adaptation Parameters")
     few_shot_hours = st.slider("Training History (Hours)", min_value=12, max_value=168, value=48, step=12, help="How many hours of data the model sees in the new city.")
@@ -41,6 +43,8 @@ with st.sidebar:
     
     st.divider()
     st.info("ℹ️ **Research Note:** Standard models require months of data. This framework adapts in just 48 hours.")
+    st.markdown("---")
+    st.caption("v1.0.0 | Research Grade Build")
 
 # --- 3. DATA LOADING & FUNCTIONS ---
 @st.cache_data
@@ -110,7 +114,7 @@ with tab1:
                 st.write("📥 Loading Pre-trained Weights from Source Domain...")
                 time.sleep(1)
                 
-                st.write(f"⚙️ Freezing Convolutional Layers...")
+                st.write(f"⚙️ Freezing Convolutional Layers (Feature Extractors)...")
                 time.sleep(0.5)
                 
                 st.write(f"🔄 Fine-tuning on {few_shot_hours} hours of Target Data...")
@@ -137,7 +141,17 @@ with tab1:
             # --- Results Display ---
             st.success(f"Model successfully adapted! MSE dropped from {baseline_mse:.0f} to {fsl_mse:.0f}")
             
-            # Interactive Result Chart
+            # Metrics Row
+            m1, m2 = st.columns(2)
+            m1.metric("📉 Final MSE", f"{fsl_mse:.2f}", delta=f"-{(baseline_mse-fsl_mse):.2f}", delta_color="normal")
+            m2.metric("💾 Model Size", "5.46 KB", "90% Smaller")
+            
+            st.metric("⚡ Energy Efficiency", "2.5 mJ / Inference", "60x vs Cloud")
+
+    with c2:
+        # Placeholder for result until button is pressed
+        if 'fsl_pred' in locals():
+             # Interactive Result Chart
             df_res = pd.DataFrame({
                 'Time': range(len(y_test[:100])),
                 'Ground Truth': y_test[:100],
@@ -147,21 +161,12 @@ with tab1:
             fig_res = go.Figure()
             fig_res.add_trace(go.Scatter(x=df_res['Time'], y=df_res['Ground Truth'], name='Actual Traffic', line=dict(color='gray', width=2, dash='dot')))
             fig_res.add_trace(go.Scatter(x=df_res['Time'], y=df_res['TinyML Prediction'], name='TinyML Prediction', line=dict(color='#2ca02c', width=3)))
-            fig_res.update_layout(title="Prediction Accuracy (First 100 Hours)", template="plotly_white", height=350)
+            fig_res.update_layout(title="Prediction Accuracy (First 100 Hours)", template="plotly_white", height=400)
             st.plotly_chart(fig_res, use_container_width=True)
-            
-            # Metrics Row
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("📉 Final MSE", f"{fsl_mse:.2f}", delta=f"-{(baseline_mse-fsl_mse):.2f}")
-            m2.metric("💾 Model Size", "5.46 KB", "90% Smaller")
-            m3.metric("⚡ Energy", "2.5 mJ", "60x Efficient")
-            m4.metric("⏱️ Training Data", f"{few_shot_hours} Hours")
-
-    with c2:
-        # Placeholder for result until button is pressed
-        if 'fsl_mse' not in locals():
+        else:
             st.info("👈 Click the button to run the live simulation.")
-            st.image("https://github.com/mahbubchula/TinyML-Traffic-Prediction/blob/main/paper/Fig1_Methodology.png?raw=true", caption="Proposed Methodology Flow")
+            # Use the GitHub image as a placeholder
+            st.image("https://github.com/mahbubchula/TinyML-Traffic-Prediction/blob/main/paper/Fig3_Results_Comparison.png?raw=true", caption="Expected Result (Preview)")
 
 
 # === TAB 2: METHODOLOGY ===
@@ -174,19 +179,26 @@ with tab2:
     \theta^* = \arg\min_{\theta} \mathbb{E}_{(X,y) \sim \mathcal{D}_T} [\mathcal{L}(f_\theta(X), y)]
     ''')
     
-    st.markdown("#### 1. Quantization Formula")
-    st.write("To fit the model on an Arduino, we convert 32-bit floats ($r$) to 8-bit integers ($q$) using:")
-    st.latex(r''' r = S(q - Z) ''')
-    st.write("Where $S$ is the scale factor and $Z$ is the zero-point offset.")
+    st.divider()
     
-    st.markdown("#### 2. Architecture")
-    st.code("""
-    Layer 1: Conv1D (16 filters, kernel=3) -> ReLU
-    Layer 2: MaxPooling1D (pool_size=2)
-    Layer 3: Flatten
-    Layer 4: Dense (10 units) -> ReLU
-    Layer 5: Output (1 unit)
-    """, language="text")
+    c_math1, c_math2 = st.columns(2)
+    with c_math1:
+        st.markdown("#### 1. Quantization Formula")
+        st.write("To fit the model on an Arduino, we convert 32-bit floats ($r$) to 8-bit integers ($q$) using:")
+        st.latex(r''' r = S(q - Z) ''')
+        st.write("Where $S$ is the scale factor and $Z$ is the zero-point offset.")
+    
+    with c_math2:
+        st.markdown("#### 2. Architecture")
+        st.code("""
+Layer 1: Conv1D (16 filters, kernel=3) -> ReLU
+Layer 2: MaxPooling1D (pool_size=2)
+Layer 3: Flatten
+Layer 4: Dense (10 units) -> ReLU
+Layer 5: Output (1 unit)
+        """, language="text")
+        
+    st.image("https://github.com/mahbubchula/TinyML-Traffic-Prediction/blob/main/paper/Fig1_Methodology.png?raw=true", caption="System Architecture")
 
 # === TAB 3: PAPER INFO ===
 with tab3:
