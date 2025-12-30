@@ -27,6 +27,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- HELPER: CRASH-PROOF ARRAY CONVERTER ---
+def ensure_array(data):
+    """
+    Prevents 'float64 has no len()' error by forcing scalars into arrays.
+    """
+    if data is None:
+        return np.array([])
+    return np.atleast_1d(data)
+
 # --- 2. SIDEBAR CONTROLS ---
 with st.sidebar:
     st.title("🔬 Experiment Settings")
@@ -35,7 +44,7 @@ with st.sidebar:
     st.divider()
     
     st.markdown("### 1. Adaptation Parameters")
-    # Reduced max value slightly to ensure we always have enough test data
+    # Reduced max value to ensure we always have enough test data (max 120h)
     few_shot_hours = st.slider("Training History (Hours)", min_value=12, max_value=120, value=48, step=12, help="How many hours of data the model sees in the new city.")
     learning_rate = st.selectbox("Learning Rate", [0.01, 0.001, 0.0001], index=2)
     
@@ -45,7 +54,7 @@ with st.sidebar:
     st.divider()
     st.info("ℹ️ **Research Note:** Standard models require months of data. This framework adapts in just 48 hours.")
     st.markdown("---")
-    st.caption("v1.1.3 | Research Grade Build")
+    st.caption("v1.2.0 | Research Grade Build")
 
 # --- 3. DATA LOADING & FUNCTIONS ---
 @st.cache_data
@@ -57,10 +66,12 @@ look_back = 24
 
 def create_dataset(dataset, look_back=24):
     X, Y = [], []
-    for i in range(len(dataset) - look_back - 1):
-        a = dataset[i:(i + look_back)]
-        X.append(a)
-        Y.append(dataset[i + look_back])
+    # Safety check for dataset length
+    if len(dataset) > look_back:
+        for i in range(len(dataset) - look_back - 1):
+            a = dataset[i:(i + look_back)]
+            X.append(a)
+            Y.append(dataset[i + look_back])
     return np.array(X), np.array(Y)
 
 def get_model():
@@ -87,7 +98,6 @@ with tab1:
     st.write("Deep Learning models trained on a **Source City** fail when deployed to a **New City (Target)** due to different traffic patterns.")
     
     # Interactive Plotly Chart for Data Comparison
-    # Ensure consistent lengths for plotting
     limit_plot = min(168, len(target_data))
     df_source = pd.DataFrame({'Traffic': source_data[:limit_plot], 'Type': 'Source Domain (Rich Data)', 'Time': range(limit_plot)})
     df_target = pd.DataFrame({'Traffic': target_data[:limit_plot], 'Type': 'Target Domain (Scarce Data)', 'Time': range(limit_plot)})
@@ -111,69 +121,77 @@ with tab1:
         # --- BUTTON LOGIC WITH SESSION STATE ---
         if st.button("🚀 Start Few-Shot Learning", type="primary"):
             X_target, y_target = create_dataset(target_data, look_back)
-            X_target = X_target.reshape(X_target.shape[0], X_target.shape[1], 1)
             
-            # Simulated Training Loop
-            with st.status("Initializing TinyML Model...", expanded=True) as status:
-                st.write("📥 Loading Pre-trained Weights from Source Domain...")
-                time.sleep(1)
+            # Validations
+            if len(X_target) == 0:
+                st.error("Data generation error: Not enough target data.")
+            else:
+                X_target = X_target.reshape(X_target.shape[0], X_target.shape[1], 1)
                 
-                st.write(f"⚙️ Freezing Convolutional Layers (Feature Extractors)...")
-                time.sleep(0.5)
-                
-                st.write(f"🔄 Fine-tuning on {few_shot_hours} hours of Target Data...")
-                
-                # Actual Training Logic
-                model = get_model()
-                split_point = few_shot_hours
-                
-                # Safety check: Ensure we have enough data
-                if len(X_target) > split_point + 10:
-                    X_fewshot, y_fewshot = X_target[:split_point], y_target[:split_point]
-                    X_test, y_test = X_target[split_point:], y_target[split_point]
+                # Simulated Training Loop
+                with st.status("Initializing TinyML Model...", expanded=True) as status:
+                    st.write("📥 Loading Pre-trained Weights from Source Domain...")
+                    time.sleep(1)
                     
-                    # Baseline (Before Training)
-                    baseline_pred = model.predict(X_test).flatten()
-                    baseline_mse = np.mean((y_test - baseline_pred)**2)
+                    st.write(f"⚙️ Freezing Convolutional Layers (Feature Extractors)...")
+                    time.sleep(0.5)
                     
-                    # Train
-                    model.fit(X_fewshot, y_fewshot, epochs=20, verbose=0)
+                    st.write(f"🔄 Fine-tuning on {few_shot_hours} hours of Target Data...")
                     
-                    # Prediction
-                    fsl_pred = model.predict(X_test).flatten()
-                    fsl_mse = np.mean((y_test - fsl_pred)**2)
+                    model = get_model()
+                    split_point = few_shot_hours
                     
-                    # SAVE RESULTS TO SESSION STATE
-                    st.session_state['fsl_pred'] = fsl_pred
-                    st.session_state['y_test'] = y_test
-                    st.session_state['baseline_mse'] = baseline_mse
-                    st.session_state['fsl_mse'] = fsl_mse
-                    st.session_state['training_done'] = True
-                    
-                    status.update(label="✅ Adaptation Complete!", state="complete", expanded=False)
-                else:
-                    st.error("Not enough data generated for this split. Try reducing training hours.")
+                    # Ensure we have enough data for testing
+                    if len(X_target) > split_point + 5:
+                        X_fewshot, y_fewshot = X_target[:split_point], y_target[:split_point]
+                        X_test, y_test = X_target[split_point:], y_target[split_point]
+                        
+                        # Baseline (Before Training)
+                        baseline_pred = model.predict(X_test).flatten()
+                        baseline_mse = np.mean((y_test - baseline_pred)**2)
+                        
+                        # Train
+                        model.fit(X_fewshot, y_fewshot, epochs=20, verbose=0)
+                        
+                        # Prediction
+                        fsl_pred = model.predict(X_test).flatten()
+                        fsl_mse = np.mean((y_test - fsl_pred)**2)
+                        
+                        # SAVE RESULTS TO SESSION STATE
+                        st.session_state['fsl_pred'] = fsl_pred
+                        st.session_state['y_test'] = y_test
+                        st.session_state['baseline_mse'] = baseline_mse
+                        st.session_state['fsl_mse'] = fsl_mse
+                        st.session_state['training_done'] = True
+                        
+                        status.update(label="✅ Adaptation Complete!", state="complete", expanded=False)
+                    else:
+                        st.error("Not enough data generated for this split. Try reducing training hours.")
 
     # --- RESULTS DISPLAY (SAFEGUARDED) ---
     with c2:
-        # Check if training is done AND if y_test is valid
         if st.session_state.get('training_done'):
-            # Retrieve data safely and FORCE ARRAY CONVERSION to fix "float64 has no len" error
-            fsl_pred = np.atleast_1d(st.session_state.get('fsl_pred'))
-            y_test = np.atleast_1d(st.session_state.get('y_test'))
+            # Retrieve data using our SAFE helper function
+            fsl_pred = ensure_array(st.session_state.get('fsl_pred'))
+            y_test = ensure_array(st.session_state.get('y_test'))
+            
             baseline_mse = st.session_state.get('baseline_mse', 0)
             fsl_mse = st.session_state.get('fsl_mse', 0)
             
             if len(y_test) > 0:
                 st.success(f"Model successfully adapted! MSE dropped from {baseline_mse:.0f} to {fsl_mse:.0f}")
                 
-                # SAFE PLOTTING LOGIC
+                # Safe Plotting Logic
                 plot_len = min(100, len(y_test))
                 
+                # Double check dimension consistency
+                y_plot = y_test[:plot_len].flatten()
+                pred_plot = fsl_pred[:plot_len].flatten()
+                
                 df_res = pd.DataFrame({
-                    'Time': range(plot_len),
-                    'Ground Truth': y_test[:plot_len].flatten(),
-                    'TinyML Prediction': fsl_pred[:plot_len].flatten()
+                    'Time': range(len(y_plot)),
+                    'Ground Truth': y_plot,
+                    'TinyML Prediction': pred_plot
                 })
                 
                 fig_res = go.Figure()
@@ -190,23 +208,20 @@ with tab1:
                     m2.metric("💾 Model Size", "5.46 KB", "90% Smaller")
                     st.metric("⚡ Energy Efficiency", "2.5 mJ / Inference", "60x vs Cloud")
             else:
-                st.warning("Data issue detected. Please reset the app or adjust sliders.")
+                st.warning("Training finished but no test data available. Resetting...")
+                st.session_state.clear() # Clear bad state
         else:
             # Default State (Before Button Click)
             st.info("👈 Click the button to run the live simulation.")
-            # Use GitHub image as placeholder
             st.image("https://github.com/mahbubchula/TinyML-Traffic-Prediction/blob/main/paper/Fig3_Results_Comparison.png?raw=true", caption="Expected Result (Preview)")
 
 
 # === TAB 2: METHODOLOGY ===
 with tab2:
     st.markdown("### 🧠 The Mathematical Framework")
+    st.write("We formulate the problem as a **Time-Series Regression** under domain shift.")
     
-    st.write("We formulate the problem as a **Time-Series Regression** under domain shift. The goal is to minimize the loss on the Target Domain $\mathcal{D}_T$ using limited samples.")
-    
-    st.latex(r'''
-    \theta^* = \arg\min_{\theta} \mathbb{E}_{(X,y) \sim \mathcal{D}_T} [\mathcal{L}(f_\theta(X), y)]
-    ''')
+    st.latex(r''' \theta^* = \arg\min_{\theta} \mathbb{E}_{(X,y) \sim \mathcal{D}_T} [\mathcal{L}(f_\theta(X), y)] ''')
     
     st.divider()
     
