@@ -35,7 +35,8 @@ with st.sidebar:
     st.divider()
     
     st.markdown("### 1. Adaptation Parameters")
-    few_shot_hours = st.slider("Training History (Hours)", min_value=12, max_value=168, value=48, step=12, help="How many hours of data the model sees in the new city.")
+    # Reduced max value slightly to ensure we always have enough test data
+    few_shot_hours = st.slider("Training History (Hours)", min_value=12, max_value=120, value=48, step=12, help="How many hours of data the model sees in the new city.")
     learning_rate = st.selectbox("Learning Rate", [0.01, 0.001, 0.0001], index=2)
     
     st.markdown("### 2. Model Constraints")
@@ -44,7 +45,7 @@ with st.sidebar:
     st.divider()
     st.info("ℹ️ **Research Note:** Standard models require months of data. This framework adapts in just 48 hours.")
     st.markdown("---")
-    st.caption("v1.0.0 | Research Grade Build")
+    st.caption("v1.1.0 | Research Grade Build")
 
 # --- 3. DATA LOADING & FUNCTIONS ---
 @st.cache_data
@@ -86,8 +87,10 @@ with tab1:
     st.write("Deep Learning models trained on a **Source City** fail when deployed to a **New City (Target)** due to different traffic patterns.")
     
     # Interactive Plotly Chart for Data Comparison
-    df_source = pd.DataFrame({'Traffic': source_data[:168], 'Type': 'Source Domain (Rich Data)', 'Time': range(168)})
-    df_target = pd.DataFrame({'Traffic': target_data[:168], 'Type': 'Target Domain (Scarce Data)', 'Time': range(168)})
+    # Ensure consistent lengths for plotting
+    limit_plot = min(168, len(target_data))
+    df_source = pd.DataFrame({'Traffic': source_data[:limit_plot], 'Type': 'Source Domain (Rich Data)', 'Time': range(limit_plot)})
+    df_target = pd.DataFrame({'Traffic': target_data[:limit_plot], 'Type': 'Target Domain (Scarce Data)', 'Time': range(limit_plot)})
     df_combined = pd.concat([df_source, df_target])
     
     fig_data = px.line(df_combined, x='Time', y='Traffic', color='Type', 
@@ -105,6 +108,7 @@ with tab1:
         st.markdown("### 2. Run Adaptation")
         st.write(f"Train the model on the new city using only **{few_shot_hours} hours** of data.")
         
+        # --- BUTTON LOGIC WITH SESSION STATE ---
         if st.button("🚀 Start Few-Shot Learning", type="primary"):
             X_target, y_target = create_dataset(target_data, look_back)
             X_target = X_target.reshape(X_target.shape[0], X_target.shape[1], 1)
@@ -122,50 +126,71 @@ with tab1:
                 # Actual Training Logic
                 model = get_model()
                 split_point = few_shot_hours
-                X_fewshot, y_fewshot = X_target[:split_point], y_target[:split_point]
-                X_test, y_test = X_target[split_point:], y_target[split_point]
                 
-                # Baseline (Before Training)
-                baseline_pred = model.predict(X_test).flatten()
-                baseline_mse = np.mean((y_test - baseline_pred)**2)
-                
-                # Train
-                model.fit(X_fewshot, y_fewshot, epochs=20, verbose=0)
-                
-                # Prediction
-                fsl_pred = model.predict(X_test).flatten()
-                fsl_mse = np.mean((y_test - fsl_pred)**2)
-                
-                status.update(label="✅ Adaptation Complete!", state="complete", expanded=False)
+                # Safety check: Ensure we have enough data
+                if len(X_target) > split_point + 10:
+                    X_fewshot, y_fewshot = X_target[:split_point], y_target[:split_point]
+                    X_test, y_test = X_target[split_point:], y_target[split_point]
+                    
+                    # Baseline (Before Training)
+                    baseline_pred = model.predict(X_test).flatten()
+                    baseline_mse = np.mean((y_test - baseline_pred)**2)
+                    
+                    # Train
+                    model.fit(X_fewshot, y_fewshot, epochs=20, verbose=0)
+                    
+                    # Prediction
+                    fsl_pred = model.predict(X_test).flatten()
+                    fsl_mse = np.mean((y_test - fsl_pred)**2)
+                    
+                    # SAVE RESULTS TO SESSION STATE
+                    st.session_state['fsl_pred'] = fsl_pred
+                    st.session_state['y_test'] = y_test
+                    st.session_state['baseline_mse'] = baseline_mse
+                    st.session_state['fsl_mse'] = fsl_mse
+                    st.session_state['training_done'] = True
+                    
+                    status.update(label="✅ Adaptation Complete!", state="complete", expanded=False)
+                else:
+                    st.error("Not enough data generated for this split. Try reducing training hours.")
+
+    # --- RESULTS DISPLAY (DEPENDS ON SESSION STATE) ---
+    with c2:
+        if st.session_state.get('training_done'):
+            # Retrieve data from session state
+            fsl_pred = st.session_state['fsl_pred']
+            y_test = st.session_state['y_test']
+            baseline_mse = st.session_state['baseline_mse']
+            fsl_mse = st.session_state['fsl_mse']
             
-            # --- Results Display ---
             st.success(f"Model successfully adapted! MSE dropped from {baseline_mse:.0f} to {fsl_mse:.0f}")
             
-            # Metrics Row
-            m1, m2 = st.columns(2)
-            m1.metric("📉 Final MSE", f"{fsl_mse:.2f}", delta=f"-{(baseline_mse-fsl_mse):.2f}", delta_color="normal")
-            m2.metric("💾 Model Size", "5.46 KB", "90% Smaller")
+            # Interactive Result Chart
+            # Safe Slicing to prevent IndexError
+            plot_len = min(100, len(y_test))
             
-            st.metric("⚡ Energy Efficiency", "2.5 mJ / Inference", "60x vs Cloud")
-
-    with c2:
-        # Placeholder for result until button is pressed
-        if 'fsl_pred' in locals():
-             # Interactive Result Chart
             df_res = pd.DataFrame({
-                'Time': range(len(y_test[:100])),
-                'Ground Truth': y_test[:100],
-                'TinyML Prediction': fsl_pred[:100]
+                'Time': range(plot_len),
+                'Ground Truth': y_test[:plot_len].flatten(),
+                'TinyML Prediction': fsl_pred[:plot_len]
             })
             
             fig_res = go.Figure()
             fig_res.add_trace(go.Scatter(x=df_res['Time'], y=df_res['Ground Truth'], name='Actual Traffic', line=dict(color='gray', width=2, dash='dot')))
             fig_res.add_trace(go.Scatter(x=df_res['Time'], y=df_res['TinyML Prediction'], name='TinyML Prediction', line=dict(color='#2ca02c', width=3)))
-            fig_res.update_layout(title="Prediction Accuracy (First 100 Hours)", template="plotly_white", height=400)
+            fig_res.update_layout(title="Prediction Accuracy (First 100 Hours)", template="plotly_white", height=350)
             st.plotly_chart(fig_res, use_container_width=True)
+            
+            # Metrics (Now persistent)
+            with c1:
+                st.divider()
+                m1, m2 = st.columns(2)
+                m1.metric("📉 Final MSE", f"{fsl_mse:.2f}", delta=f"-{(baseline_mse-fsl_mse):.2f}")
+                m2.metric("💾 Model Size", "5.46 KB", "90% Smaller")
+                st.metric("⚡ Energy Efficiency", "2.5 mJ / Inference", "60x vs Cloud")
         else:
             st.info("👈 Click the button to run the live simulation.")
-            # Use the GitHub image as a placeholder
+            # Use GitHub image as placeholder
             st.image("https://github.com/mahbubchula/TinyML-Traffic-Prediction/blob/main/paper/Fig3_Results_Comparison.png?raw=true", caption="Expected Result (Preview)")
 
 
