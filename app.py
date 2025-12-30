@@ -45,7 +45,7 @@ with st.sidebar:
     st.divider()
     st.info("ℹ️ **Research Note:** Standard models require months of data. This framework adapts in just 48 hours.")
     st.markdown("---")
-    st.caption("v1.1.2 | Research Grade Build")
+    st.caption("v1.1.3 | Research Grade Build")
 
 # --- 3. DATA LOADING & FUNCTIONS ---
 @st.cache_data
@@ -157,41 +157,44 @@ with tab1:
     # --- RESULTS DISPLAY (SAFEGUARDED) ---
     with c2:
         # Check if training is done AND if y_test is valid
-        if st.session_state.get('training_done') and st.session_state.get('y_test') is not None:
-            # Retrieve data safely
-            fsl_pred = st.session_state.get('fsl_pred')
-            y_test = st.session_state.get('y_test')
+        if st.session_state.get('training_done'):
+            # Retrieve data safely and FORCE ARRAY CONVERSION to fix "float64 has no len" error
+            fsl_pred = np.atleast_1d(st.session_state.get('fsl_pred'))
+            y_test = np.atleast_1d(st.session_state.get('y_test'))
             baseline_mse = st.session_state.get('baseline_mse', 0)
             fsl_mse = st.session_state.get('fsl_mse', 0)
             
-            st.success(f"Model successfully adapted! MSE dropped from {baseline_mse:.0f} to {fsl_mse:.0f}")
-            
-            # SAFE PLOTTING LOGIC
-            # Use 'min' to avoid index errors if arrays are different sizes
-            plot_len = min(100, len(y_test))
-            
-            df_res = pd.DataFrame({
-                'Time': range(plot_len),
-                'Ground Truth': y_test[:plot_len].flatten(),
-                'TinyML Prediction': fsl_pred[:plot_len]
-            })
-            
-            fig_res = go.Figure()
-            fig_res.add_trace(go.Scatter(x=df_res['Time'], y=df_res['Ground Truth'], name='Actual Traffic', line=dict(color='gray', width=2, dash='dot')))
-            fig_res.add_trace(go.Scatter(x=df_res['Time'], y=df_res['TinyML Prediction'], name='TinyML Prediction', line=dict(color='#2ca02c', width=3)))
-            fig_res.update_layout(title="Prediction Accuracy (First 100 Hours)", template="plotly_white", height=350)
-            st.plotly_chart(fig_res, use_container_width=True)
-            
-            # Metrics
-            with c1:
-                st.divider()
-                m1, m2 = st.columns(2)
-                m1.metric("📉 Final MSE", f"{fsl_mse:.2f}", delta=f"-{(baseline_mse-fsl_mse):.2f}")
-                m2.metric("💾 Model Size", "5.46 KB", "90% Smaller")
-                st.metric("⚡ Energy Efficiency", "2.5 mJ / Inference", "60x vs Cloud")
+            if len(y_test) > 0:
+                st.success(f"Model successfully adapted! MSE dropped from {baseline_mse:.0f} to {fsl_mse:.0f}")
+                
+                # SAFE PLOTTING LOGIC
+                plot_len = min(100, len(y_test))
+                
+                df_res = pd.DataFrame({
+                    'Time': range(plot_len),
+                    'Ground Truth': y_test[:plot_len].flatten(),
+                    'TinyML Prediction': fsl_pred[:plot_len].flatten()
+                })
+                
+                fig_res = go.Figure()
+                fig_res.add_trace(go.Scatter(x=df_res['Time'], y=df_res['Ground Truth'], name='Actual Traffic', line=dict(color='gray', width=2, dash='dot')))
+                fig_res.add_trace(go.Scatter(x=df_res['Time'], y=df_res['TinyML Prediction'], name='TinyML Prediction', line=dict(color='#2ca02c', width=3)))
+                fig_res.update_layout(title="Prediction Accuracy (First 100 Hours)", template="plotly_white", height=350)
+                st.plotly_chart(fig_res, use_container_width=True)
+                
+                # Metrics
+                with c1:
+                    st.divider()
+                    m1, m2 = st.columns(2)
+                    m1.metric("📉 Final MSE", f"{fsl_mse:.2f}", delta=f"-{(baseline_mse-fsl_mse):.2f}")
+                    m2.metric("💾 Model Size", "5.46 KB", "90% Smaller")
+                    st.metric("⚡ Energy Efficiency", "2.5 mJ / Inference", "60x vs Cloud")
+            else:
+                st.warning("Data issue detected. Please reset the app or adjust sliders.")
         else:
             # Default State (Before Button Click)
             st.info("👈 Click the button to run the live simulation.")
+            # Use GitHub image as placeholder
             st.image("https://github.com/mahbubchula/TinyML-Traffic-Prediction/blob/main/paper/Fig3_Results_Comparison.png?raw=true", caption="Expected Result (Preview)")
 
 
